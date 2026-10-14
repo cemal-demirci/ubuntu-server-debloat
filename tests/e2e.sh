@@ -10,9 +10,9 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
-FAILS=0
-pass() { printf '  \033[1;32mPASS\033[0m  %s\n' "$*"; }
-fail() { printf '  \033[1;31mFAIL\033[0m  %s\n' "$*"; FAILS=$((FAILS + 1)); }
+FAILS=0; PASSES=0
+pass() { printf '  \033[1;32mPASS\033[0m  %s\n' "$*"; PASSES=$((PASSES + 1)); }
+fail() { printf '  \033[1;31mFAIL\033[0m  %s\n' "$*"; FAILS=$((FAILS + 1)); [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=e2e::$*"; return 0; }
 check() { local msg="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$msg"; else fail "$msg"; fi; }
 group() { echo "::group::$*"; }
 endgroup() { echo "::endgroup::"; }
@@ -77,5 +77,8 @@ check "journald limit removed" test ! -f /etc/systemd/journald.conf.d/90-cemalcl
 check "apt-get check is clean after restore" apt-get check
 
 echo
-if [[ $FAILS -gt 0 ]]; then echo "$FAILS check(s) failed"; exit 1; fi
+if [[ $FAILS -gt 0 ]]; then echo "$FAILS check(s) failed, $PASSES passed"; exit 1; fi
 echo "All end-to-end checks passed"
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  echo "::notice title=Ubuntu end-to-end::$PASSES checks passed on $PRETTY_NAME (kernel $(uname -r)). Packages $(grep -c . <<<"$BEFORE") -> $(grep -c . <<<"$AFTER"). Purged and restored: $(xargs <<<"$PURGED"). SSH, sudo, DNS, HTTPS and apt stayed healthy; second run changed nothing."
+fi

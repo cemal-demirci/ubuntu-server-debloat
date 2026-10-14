@@ -22,4 +22,4 @@ jobs:
       - name: Stop background apt jobs
         run: sudo systemctl stop unattended-upgrades apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
       - name: Dry run, debloat, second run, restore
-        run: sudo bash tests/e2e.sh
+        run: sudo --preserve-env=GITHUB_ACTIONS bash tests/e2e.sh

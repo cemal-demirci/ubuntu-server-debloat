@@ -143,8 +143,9 @@ run_audit() {
 
   running=""
   if has_systemd; then
-    for p in ModemManager udisks2 packagekit fwupd snapd plymouth-quit-wait; do
-      systemctl is-active --quiet "$p" 2>/dev/null && running+=" $p"
+    # SubState=running: a removed oneshot unit can stay "active (exited)" until reboot
+    for p in ModemManager udisks2 fwupd snapd; do
+      [[ "$(systemctl show -p SubState --value "$p" 2>/dev/null)" == running ]] && running+=" $p"
     done
   fi
   if [[ -n "$running" ]]; then a_warn "desktop-era services running:$running"; else a_ok "no desktop-era services running"; fi

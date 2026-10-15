@@ -14,13 +14,18 @@
 #  Safety  : simulates every apt removal first and aborts if a protected
 #            package (ssh, sudo, kernel, netplan, ...) would be removed.
 #            Writes a backup + a ready-to-run restore.sh for each run.
+#  Measures: packages, disk, running services, listening sockets, snap
+#            mounts and memory before and after; saved as report.json.
+#  Audit   : --audit scores bloat and basic security without changing anything.
 #
 #  Usage:
-#    sudo ./ubuntu2404-debloat.sh --dry-run      # show the plan
+#    sudo ./ubuntu2404-debloat.sh --audit        # score the server, change nothing
+#    sudo ./ubuntu2404-debloat.sh --dry-run      # show the plan and expected savings
 #    sudo ./ubuntu2404-debloat.sh                # interactive confirm
 #    sudo ./ubuntu2404-debloat.sh -y             # unattended
 #
 #  Options:
+#        --audit            read-only bloat + security score, change nothing
 #    -n, --dry-run          show what would change, change nothing
 #    -y, --yes              do not ask for confirmation
 #        --keep-snap        keep snapd
@@ -35,8 +40,8 @@
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C
 
-VERSION="1.0.0"
-DRY_RUN=0; ASSUME_YES=0; KEEP_SNAP=0; KEEP_CLOUD=0; FORCE_CLOUD=0
+VERSION="1.1.0"
+AUDIT=0; DRY_RUN=0; ASSUME_YES=0; KEEP_SNAP=0; KEEP_CLOUD=0; FORCE_CLOUD=0
 KEEP_FWUPD=0; KEEP_RECOMMENDS=0; REMOVE_PRO=0; FORCE=0
 
 c_b='\033[1;34m'; c_g='\033[1;32m'; c_y='\033[1;33m'; c_r='\033[1;31m'; c_0='\033[0m'
@@ -50,6 +55,7 @@ usage() { sed -n '/^#  Usage:/,/^# =====/p' "$0" | sed 's/^# \{0,1\}//' | sed '$
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --audit)             AUDIT=1 ;;
     -n|--dry-run)        DRY_RUN=1 ;;
     -y|--yes)            ASSUME_YES=1 ;;
     --keep-snap)         KEEP_SNAP=1 ;;
@@ -68,7 +74,8 @@ done
 [[ $EUID -eq 0 ]] || die "run as root (sudo)"
 [[ $KEEP_CLOUD -eq 1 && $FORCE_CLOUD -eq 1 ]] && die "--keep-cloud-init and --remove-cloud-init conflict"
 
-printf "${c_b}Cemal.cloud${c_0} | Ubuntu 24.04 debloat v%s%s\n" "$VERSION" "$([[ $DRY_RUN -eq 1 ]] && echo '  (DRY RUN)')"
+MODE_LABEL=""; [[ $DRY_RUN -eq 1 ]] && MODE_LABEL="  (DRY RUN)"; [[ $AUDIT -eq 1 ]] && MODE_LABEL="  (AUDIT, read-only)"
+printf "${c_b}Cemal.cloud${c_0} | Ubuntu 24.04 debloat v%s%s\n" "$VERSION" "$MODE_LABEL"
 
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -82,6 +89,119 @@ fi
 is_installed() { [[ "$(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null)" == ii* ]]; }
 in_list() { local x="$1" i; shift; for i in "$@"; do [[ "$i" == "$x" ]] && return 0; done; return 1; }
 has_systemd()  { [[ -d /run/systemd/system ]]; }
+
+# ----------------------------------------------------------------------------
+# Measurements (before / after)
+# ----------------------------------------------------------------------------
+m_pkgs()       { dpkg-query -W -f='${db:Status-Abbrev}\n' 2>/dev/null | grep -c '^ii' || true; }
+m_disk()       { df -B1 --output=used / 2>/dev/null | tail -n1 | tr -dc '0-9'; }
+m_services()   { if has_systemd; then systemctl list-units --type=service --state=running --no-legend --plain 2>/dev/null | grep -c . || true; else echo 0; fi; }
+m_listen()     { if command -v ss >/dev/null; then ss -H -tuln 2>/dev/null | grep -c . || true; else echo 0; fi; }
+m_snapmounts() { findmnt -rn -t squashfs -o TARGET 2>/dev/null | grep -c '^/snap/' || true; }
+m_mem()        { awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {printf "%d", (t - a) * 1024}' /proc/meminfo; }
+declare -A M=()
+measure() {  # $1 = before|after
+  M[$1_pkgs]="$(m_pkgs)";         M[$1_disk]="$(m_disk)"
+  M[$1_services]="$(m_services)"; M[$1_listen]="$(m_listen)"
+  M[$1_snaps]="$(m_snapmounts)";  M[$1_mem]="$(m_mem)"
+}
+# human readable bytes, keeps the sign
+hb() { awk -v b="$1" 'BEGIN { s = (b < 0) ? "-" : ""; if (b < 0) b = -b; split("B KB MB GB TB", u, " "); i = 1
+       while (b >= 1024 && i < 5) { b /= 1024; i++ }
+       printf (i == 1 ? "%s%d %s" : "%s%.1f %s"), s, b, u[i] }'; }
+row() {  # label before after kind(count|bytes)
+  local label="$1" b="$2" a="$3" kind="$4" d=$(( $3 - $2 ))
+  if [[ "$kind" == bytes ]]; then
+    printf "    %-22s %10s -> %-10s (%s)\n" "$label" "$(hb "$b")" "$(hb "$a")" "$(hb "$d")"
+  else
+    printf "    %-22s %10s -> %-10s (%+d)\n" "$label" "$b" "$a" "$d"
+  fi
+}
+
+# ----------------------------------------------------------------------------
+# Audit (read-only)
+# ----------------------------------------------------------------------------
+A_OK=0; A_WARN=0
+a_ok()   { printf "    ${c_g}OK  ${c_0}  %s\n" "$*"; A_OK=$((A_OK + 1)); }
+a_warn() { printf "    ${c_y}WARN${c_0}  %s\n" "$*"; A_WARN=$((A_WARN + 1)); }
+a_info() { printf "    INFO  %s\n" "$*"; }
+
+run_audit() {
+  local p list running cid sshcfg prl pwa exposed
+  step "Bloat"
+  if is_installed snapd; then
+    a_warn "snapd installed ($(snap list 2>/dev/null | awk 'NR > 1' | grep -c . || true) snaps, $(m_snapmounts) loop mounts)"
+  else a_ok "no snapd"; fi
+
+  list=""
+  for p in apport whoopsie popularity-contest ubuntu-report; do is_installed "$p" && list+=" $p"; done
+  if [[ -n "$list" ]]; then a_warn "telemetry / crash reporting installed:$list"; else a_ok "no telemetry packages"; fi
+
+  if grep -qs '^ENABLED=1' /etc/default/motd-news || { has_systemd && systemctl is-enabled --quiet motd-news.timer 2>/dev/null; }; then
+    a_warn "login message fetches ads (motd-news)"
+  else a_ok "login message ads off"; fi
+
+  running=""
+  if has_systemd; then
+    for p in ModemManager udisks2 packagekit fwupd snapd plymouth-quit-wait; do
+      systemctl is-active --quiet "$p" 2>/dev/null && running+=" $p"
+    done
+  fi
+  if [[ -n "$running" ]]; then a_warn "desktop-era services running:$running"; else a_ok "no desktop-era services running"; fi
+
+  if is_installed cloud-init; then
+    cid="$(cloud-id 2>/dev/null | head -n1 || true)"; cid="${cid:-unknown}"
+    if [[ "$cid" =~ ^(none|nocloud|unknown|disabled|not\ started|not\ running)$ ]]; then
+      a_warn "cloud-init installed but no cloud datasource ($cid)"
+    else a_ok "cloud-init in use ($cid)"; fi
+  fi
+
+  local jbytes
+  jbytes="$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+[BKMGT]' | head -n1 || true)"
+  if [[ "$jbytes" =~ G$ ]] && awk -v v="${jbytes%G}" 'BEGIN { exit !(v > 1) }'; then
+    a_warn "journal uses $jbytes (no size cap)"
+  elif [[ -n "$jbytes" ]]; then a_ok "journal size $jbytes"; fi
+
+  step "Security"
+  if is_installed unattended-upgrades && apt-config dump 2>/dev/null | grep -q 'APT::Periodic::Unattended-Upgrade "1"'; then
+    a_ok "automatic security updates on"
+  else a_warn "automatic security updates off"; fi
+
+  if [[ -f /var/run/reboot-required ]]; then a_warn "reboot required (pending kernel or library update)"
+  else a_ok "no reboot pending"; fi
+
+  if command -v sshd >/dev/null && sshcfg="$(sshd -T 2>/dev/null)"; then
+    prl="$(awk '$1 == "permitrootlogin" {print $2}' <<<"$sshcfg")"
+    pwa="$(awk '$1 == "passwordauthentication" {print $2}' <<<"$sshcfg")"
+    if [[ "$prl" == yes ]]; then a_warn "SSH allows root login with a password (PermitRootLogin yes)"
+    else a_ok "SSH root login: ${prl:-unknown}"; fi
+    if [[ "$pwa" == yes ]]; then a_warn "SSH accepts passwords (PasswordAuthentication yes); keys only is safer"
+    else a_ok "SSH password logins off"; fi
+  fi
+
+  if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    a_ok "firewall: ufw active"
+  elif command -v nft >/dev/null && nft list ruleset 2>/dev/null | grep -q 'hook input'; then
+    a_ok "firewall: nftables input rules present"
+  else
+    a_warn "no host firewall rules on input (ufw inactive, no nftables input chain)"
+  fi
+
+  if command -v ss >/dev/null; then
+    exposed="$(ss -H -tulpn 2>/dev/null | awk '
+      { local = $5; proc = $7
+        if (local ~ /^(127\.|\[::1\]|::1)/ || local ~ /%lo:/) next
+        n = split(local, a, ":"); port = a[n]
+        name = proc; sub(/^users:\(\("/, "", name); sub(/".*/, "", name); if (name == "") name = "?"
+        print $1 "/" port " " name }' | sort -u | xargs)"
+    if [[ -n "$exposed" ]]; then a_info "reachable from the network: $exposed"; else a_info "nothing listens on the network"; fi
+  fi
+
+  echo
+  printf "    ${c_b}Score:${c_0} %d of %d checks OK" "$A_OK" "$((A_OK + A_WARN))"
+  [[ $A_WARN -gt 0 ]] && printf ", %d to look at" "$A_WARN"
+  printf "\n    Nothing was changed. Run with --dry-run to see what the debloat would do.\n"
+}
 
 # Packages that must never be removed as a side effect.
 PROTECTED=( openssh-server openssh-client sudo apt dpkg systemd systemd-sysv systemd-resolved
@@ -110,6 +230,11 @@ check_sim() {
   if [[ ${#bad[@]} -gt 0 ]]; then printf '%s\n' "${bad[@]}"; fi
   return 0
 }
+
+if [[ $AUDIT -eq 1 ]]; then
+  run_audit
+  exit 0
+fi
 
 # ----------------------------------------------------------------------------
 # 1. Build the removal plan
@@ -249,6 +374,15 @@ if [[ $DRY_RUN -eq 1 ]]; then
   dry "journald cap 500M, needrestart list-only$([[ $KEEP_RECOMMENDS -eq 0 ]] && echo ', apt Recommends off')"
   dry "pin ${#META_DEPS[@]} metapackage deps + installed admin tools (${KEEP_TOOLS[*]}) as manual"
   dry "backup + restore.sh -> $BACKUP"
+  est=0
+  if [[ ${#REMOVE[@]} -gt 0 ]]; then
+    est="$(dpkg-query -W -f='${Installed-Size}\n' "${REMOVE[@]}" "${EXTRA[@]}" 2>/dev/null | awk '{s += $1} END {printf "%d", s * 1024}' || true)"
+  fi
+  snapb=0; [[ $SNAP_REMOVE -eq 1 ]] && snapb="$(du -sb /var/lib/snapd/snaps 2>/dev/null | awk '{print $1}' || true)"
+  step "Expected savings"
+  info "packages to purge     : ${#REMOVE[@]} (+${#EXTRA[@]} dependents), about $(hb "$est") installed size"
+  [[ $SNAP_REMOVE -eq 1 ]] && info "snap images           : $(hb "${snapb:-0}"), $(m_snapmounts) loop mounts"
+  info "measured for real (disk, services, sockets, memory) when you run it without --dry-run"
   exit 0
 fi
 
@@ -291,6 +425,7 @@ write_restore() {
 }
 trap write_restore EXIT
 ok "backup written"
+measure before
 
 # ----------------------------------------------------------------------------
 # 5. Snaps
@@ -412,13 +547,38 @@ if [[ -d /etc/needrestart ]]; then
 fi
 
 apt-get clean
+has_systemd && systemctl daemon-reload >/dev/null 2>&1 || true
+sleep 3   # let stopped services settle before measuring
+measure after
 
 # ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
+step "Measured impact (before -> after)"
+row "installed packages" "${M[before_pkgs]}"     "${M[after_pkgs]}"     count
+row "disk used"          "${M[before_disk]}"     "${M[after_disk]}"     bytes
+row "running services"   "${M[before_services]}" "${M[after_services]}" count
+row "listening sockets"  "${M[before_listen]}"   "${M[after_listen]}"   count
+row "snap loop mounts"   "${M[before_snaps]}"    "${M[after_snaps]}"    count
+row "memory in use"      "${M[before_mem]}"      "${M[after_mem]}"      bytes
+info "(memory is a snapshot and moves on its own; the rest is exact)"
+cat > "$BACKUP/report.json" <<EOF
+{
+  "version": "$VERSION",
+  "time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "os": "${PRETTY_NAME:-unknown}",
+  "removed": "${REMOVE[*]:-}",
+  "packages":          { "before": ${M[before_pkgs]:-0}, "after": ${M[after_pkgs]:-0} },
+  "disk_used_bytes":   { "before": ${M[before_disk]:-0}, "after": ${M[after_disk]:-0} },
+  "running_services":  { "before": ${M[before_services]:-0}, "after": ${M[after_services]:-0} },
+  "listening_sockets": { "before": ${M[before_listen]:-0}, "after": ${M[after_listen]:-0} },
+  "snap_mounts":       { "before": ${M[before_snaps]:-0}, "after": ${M[after_snaps]:-0} },
+  "memory_used_bytes": { "before": ${M[before_mem]:-0}, "after": ${M[after_mem]:-0} }
+}
+EOF
+
 step "Done"
 info "removed      : ${REMOVE[*]:-nothing}"
-info "backup       : $BACKUP"
+info "backup       : $BACKUP  (report.json has the numbers above)"
 info "roll back    : sudo $RESTORE"
-info "disk now     : $(df -h / | awk 'NR==2 {print $3" used, "$4" free"}')"
 info "reboot recommended"

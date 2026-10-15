@@ -1,6 +1,6 @@
 # Ubuntu Server Debloat · Cemal.cloud
 
-[![Lisans: MIT](https://img.shields.io/badge/lisans-MIT-blue)](LICENSE)
+[![Lisans: GPL-3.0](https://img.shields.io/badge/lisans-GPL--3.0-blue)](LICENSE)
 [![Denetim](https://github.com/cemal-demirci/ubuntu-server-debloat/actions/workflows/ci.yml/badge.svg)](https://github.com/cemal-demirci/ubuntu-server-debloat/actions)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu%20Server-24.04%20LTS-E95420)
 
@@ -128,7 +128,9 @@ doğruluyor.
 
 ## Lisans
 
-[MIT](LICENSE). Kendi sorumluluğunuzda kullanın, önce bir test sunucusunda deneyin.
+[GPL-3.0](LICENSE). Kullanabilir, değiştirebilir ve paylaşabilirsiniz. Değiştirilmiş halini dağıtan herkes, kaynak kodunu da aynı lisansla açık paylaşmak zorundadır. Kendi sorumluluğunuzda kullanın, önce bir test sunucusunda deneyin.
+
+Copyright (C) 2026 Cemal Demirci (Cemal.cloud)
 
 ---
 
@@ -151,4 +153,4 @@ back), apport / whoopsie / popcon, MOTD and apt ads, ModemManager, udisks2, plym
 - **Tested:** every commit runs audit, dry run, debloat, second run and restore on a real Ubuntu 24.04 VM (55 checks;
   1210 to 1119 packages, 479 MB freed, 26 to 22 running services, audit warnings 6 to 2; ssh, sudo, DNS, HTTPS and apt
   stay healthy).
-- **License:** MIT.
+- **License:** GPL-3.0-or-later.

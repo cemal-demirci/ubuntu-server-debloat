@@ -1,6 +1,6 @@
 # Ubuntu Server Debloat · Cemal.cloud
 
-[![Lisans: GPL-3.0](https://img.shields.io/badge/lisans-GPL--3.0-blue)](LICENSE)
+[![Lisans: PolyForm Noncommercial](https://img.shields.io/badge/lisans-ticari%20olmayan%20kullan%C4%B1m%20%C3%BCcretsiz-orange)](LICENSE)
 [![Denetim](https://github.com/cemal-demirci/ubuntu-server-debloat/actions/workflows/ci.yml/badge.svg)](https://github.com/cemal-demirci/ubuntu-server-debloat/actions)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu%20Server-24.04%20LTS-E95420)
 
@@ -128,7 +128,11 @@ doğruluyor.
 
 ## Lisans
 
-[GPL-3.0](LICENSE). Kullanabilir, değiştirebilir ve paylaşabilirsiniz. Değiştirilmiş halini dağıtan herkes, kaynak kodunu da aynı lisansla açık paylaşmak zorundadır. Kendi sorumluluğunuzda kullanın, önce bir test sunucusunda deneyin.
+[PolyForm Noncommercial 1.0.0](LICENSE). Kişisel kullanım, eğitim, araştırma, kâr amacı gütmeyen kuruluşlar ve kamu kurumları için **ücretsizdir**.
+
+**Ticari kullanım** için ticari lisans gerekir: bir şirketin kendi bilgisayarlarında kullanması, müşterilere hizmet olarak sunulması, bir ürüne eklenmesi ya da satılması. İletişim: [cemaldemirci0034@gmail.com](mailto:cemaldemirci0034@gmail.com)
+
+Kendi sorumluluğunuzda kullanın.
 
 Copyright (C) 2026 Cemal Demirci (Cemal.cloud)
 
@@ -153,4 +157,4 @@ back), apport / whoopsie / popcon, MOTD and apt ads, ModemManager, udisks2, plym
 - **Tested:** every commit runs audit, dry run, debloat, second run and restore on a real Ubuntu 24.04 VM (55 checks;
   1210 to 1119 packages, 479 MB freed, 26 to 22 running services, audit warnings 6 to 2; ssh, sudo, DNS, HTTPS and apt
   stay healthy).
-- **License:** GPL-3.0-or-later.
+- **License:** PolyForm Noncommercial 1.0.0. Free for personal, educational, nonprofit and government use; commercial use (including inside a company) needs a commercial license: cemaldemirci0034@gmail.com.

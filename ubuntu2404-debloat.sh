@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Ubuntu Server 24.04 LTS debloat  |  https://cemal.cloud  |  GPL-3.0-or-later
+#  Ubuntu Server 24.04 LTS debloat  |  https://cemal.cloud  |  PolyForm-Noncommercial-1.0.0
 #  Source: https://github.com/cemal-demirci/ubuntu-server-debloat
 #
 #  Removes : snapd (+ blocks reinstall), apport/whoopsie/popcon telemetry,

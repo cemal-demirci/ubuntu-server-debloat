@@ -119,4 +119,7 @@ if [[ $FAILS -gt 0 ]]; then echo "$FAILS check(s) failed, $PASSES passed"; exit 
 echo "All end-to-end checks passed"
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   echo "::notice title=Ubuntu end-to-end::$PASSES checks passed on $PRETTY_NAME (kernel $(uname -r)). Packages $P_B -> $P_A, disk freed ${SAVED_MB} MB, running services $S_B -> $S_A, listening sockets $L_B -> $L_A, snap mounts $N_B -> $N_A. Audit warnings $W1 -> $W2. Purged and restored: $(xargs <<<"$PURGED"). SSH, sudo, DNS, HTTPS and apt stayed healthy; second run changed nothing."
+  wl() { sed 's/\x1b\[[0-9;]*m//g' <<<"$1" | awk '$1 == "WARN" {$1 = ""; sub(/^ /, ""); print}' | paste -sd '|' | sed 's/%/%25/g'; }
+  echo "::notice title=Audit before::$(wl "$AUD1")"
+  echo "::notice title=Audit after::$(wl "$AUD2")"
 fi

@@ -23,7 +23,8 @@ olmaktır. Bu yüzden bu script **her adımı önce simüle eder**:
 curl -fsSLO https://raw.githubusercontent.com/cemal-demirci/ubuntu-server-debloat/main/ubuntu2404-debloat.sh
 chmod +x ubuntu2404-debloat.sh
 
-sudo ./ubuntu2404-debloat.sh --dry-run   # önce planı görün, hiçbir şey değişmez
+sudo ./ubuntu2404-debloat.sh --audit     # sunucuyu puanlayın, hiçbir şey değişmez
+sudo ./ubuntu2404-debloat.sh --dry-run   # planı ve beklenen kazancı görün, hiçbir şey değişmez
 sudo ./ubuntu2404-debloat.sh             # onaylayıp uygulayın
 sudo reboot
 ```
@@ -34,6 +35,37 @@ Geri almak için çalıştırmanın bıraktığı scripti çağırın:
 sudo /var/backups/cemalcloud-debloat/<tarih-saat>/restore.sh
 ```
 
+## Önce denetleyin
+
+`--audit` sunucuya dokunmadan iki şeye bakar, her kontrol için OK ya da WARN yazar ve sonunda bir puan verir:
+
+| | Neye bakar |
+|---|---|
+| **Şişkinlik** | snap, telemetri paketleri, giriş mesajındaki reklamlar, çalışan modem / USB disk / firmware servisleri, gerçek bir bulut yokken kurulu cloud-init, sınırı olmayan sistem günlüğü |
+| **Güvenlik** | Otomatik güvenlik güncellemeleri, bekleyen yeniden başlatma, SSH'ta root ve parola girişi, güvenlik duvarı, dışarıya açık portlar ve onları dinleyen programlar |
+
+Güvenlik kısmı yalnızca rapordur. Script SSH ayarınıza da güvenlik duvarınıza da dokunmaz, o karar sizin.
+
+## Kazancı ölçer
+
+Script kazancı tahmin etmez, ölçer. Uygulamadan hemen önce ve hemen sonra paket sayısını, kullanılan diski, çalışan
+servisleri, ağı dinleyen soketleri, snap disk bağlarını ve bellek kullanımını okur, sonra ikisini yan yana gösterir.
+Aynı rakamlar yedek klasörüne `report.json` olarak da yazılır, böylece birden fazla sunucuyu karşılaştırabilirsiniz.
+`--dry-run` ise silinecek paketlerin kurulu boyutunu önceden söyler.
+
+GitHub'ın sanal makinesinde son çalıştırmanın sonuçları:
+
+| | Önce | Sonra |
+|---|---|---|
+| Kurulu paket | 1210 | 1119 |
+| Kullanılan disk | | 479 MB azaldı |
+| Çalışan servis | 26 | 22 |
+| `--audit` uyarısı | 6 | 2 |
+
+Kalan iki uyarı (kapalı otomatik güncellemeler ve güvenlik duvarı yokluğu) GitHub makinesinin kendi ayarlarından
+geliyor; script bunlara bilerek dokunmuyor. Bellek anlık bir ölçüm olduğu için kendi kendine de değişebilir, diğer
+rakamlar kesindir.
+
 ## Elle mi, script ile mi?
 
 | | `apt purge` ile elle | ubuntu-server-debloat |
@@ -43,6 +75,7 @@ sudo /var/backups/cemalcloud-debloat/<tarih-saat>/restore.sh
 | snap'in geri gelmesi | Bir sonraki `apt install` ile geri gelebilir | ✅ apt pin ile engellenir |
 | `jq`, `curl`, `git` gibi araçlar | `autoremove` ile gidebilir | ✅ Korunur |
 | cloud-init | Bulutta da silinir | ✅ Yalnızca gerçek bir bulut ortamı yoksa silinir |
+| Ne kazandığınız | Tahmin | ✅ Önce ve sonra ölçülür (`report.json`) |
 | Geri dönüş | Ne sildiğinizi hatırlamanız gerekir | ✅ Hazır `restore.sh` |
 
 ## Ne değişir?
@@ -62,6 +95,8 @@ sudo /var/backups/cemalcloud-debloat/<tarih-saat>/restore.sh
   `/etc/needrestart/conf.d/` altına `cemalcloud` adlı birer dosya. `/etc/update-motd.d/` altındaki reklam
   scriptlerinin çalıştırma izni kapatılır. Yedekler ve `restore.sh` için `/var/backups/cemalcloud-debloat/`. Hepsini
   `restore.sh` geri alır.
+- **Denetim:** `--audit` yalnızca okur (`systemctl`, `ss`, `sshd -T`, `ufw status`, `journalctl --disk-usage`) ve
+  hiçbir dosya yazmaz.
 - **Ağ:** script hiçbir yere bağlanmaz. Yalnızca `restore.sh`, paketleri geri kurarken Ubuntu depolarını kullanır.
 - Yeni açılmış bir sunucuda otomatik güncellemeler apt'yi meşgul ediyorsa 5 dakikaya kadar bekler.
 
@@ -69,7 +104,7 @@ sudo /var/backups/cemalcloud-debloat/<tarih-saat>/restore.sh
 
 | Ortam | Sonuç |
 |---|---|
-| **GitHub Actions, gerçek Ubuntu 24.04.5 sanal makinesi** (her commit) | 41 kontrol geçti. Paket sayısı 1210'dan 1119'a indi. SSH, sudo, DNS, HTTPS ve apt sağlam kaldı. İkinci çalıştırma hiçbir şey değiştirmedi. `restore.sh` kaldırılan her paketi geri kurdu. |
+| **GitHub Actions, gerçek Ubuntu 24.04.5 sanal makinesi** (her commit) | 55 kontrol geçti. `--audit` ve `--dry-run` hiçbir şeyi değiştirmedi. Paket sayısı 1210'dan 1119'a indi, disk 479 MB boşaldı, `report.json` dpkg ile birebir tuttu. SSH, sudo, DNS, HTTPS ve apt sağlam kaldı. İkinci çalıştırma hiçbir şey değiştirmedi. `restore.sh` kaldırılan her paketi geri kurdu. |
 | **ubuntu-server ve ubuntu-standard kurulu temiz sistem** | Paket sayısı 588'den 463'e indi. Korunan paketler yerinde, `apt-get check` temiz. `restore.sh` ile tamamen geri dönüldü, ikinci çalıştırma hiçbir şey değiştirmedi. |
 
 Dürüst not: GitHub'ın sanal makinesi bir bulut sunucusu olduğu için orada cloud-init (doğru olarak) korunuyor.
@@ -80,7 +115,8 @@ doğruluyor.
 
 | Parametre | Ne yapar |
 |---|---|
-| `-n`, `--dry-run` | Hiçbir şeyi değiştirmez, planı gösterir |
+| `--audit` | Hiçbir şeyi değiştirmez, şişkinlik ve güvenlik puanı verir |
+| `-n`, `--dry-run` | Hiçbir şeyi değiştirmez, planı ve beklenen kazancı gösterir |
 | `-y`, `--yes` | Onay sormaz (otomasyon için) |
 | `--keep-snap` | snap kalır |
 | `--keep-cloud-init` | cloud-init kalır |
@@ -106,7 +142,13 @@ back), apport / whoopsie / popcon, MOTD and apt ads, ModemManager, udisks2, plym
   (ssh, sudo, netplan, systemd-resolved, kernel, bootloader...) with it is kept; if the final plan still touches a
   protected package, the script exits without changing anything. Unreadable apt output stops the script.
 - **Reversible:** every run writes a backup and a ready-to-run `restore.sh` under `/var/backups/cemalcloud-debloat/`.
-- **Usage:** `sudo ./ubuntu2404-debloat.sh --dry-run`, then `sudo ./ubuntu2404-debloat.sh`.
-- **Tested:** every commit runs dry run, debloat, second run and restore on a real Ubuntu 24.04 VM (41 checks;
-  1210 to 1119 packages; ssh, sudo, DNS, HTTPS and apt stay healthy).
+- **Audit:** `--audit` scores bloat (snap, telemetry, MOTD ads, desktop-era services, unused cloud-init, journal size)
+  and basic security (automatic updates, pending reboot, SSH root / password login, firewall, exposed ports with
+  their processes) without changing anything.
+- **Measured:** packages, disk, running services, listening sockets, snap mounts and memory are measured before and
+  after the run, shown side by side and saved as `report.json`. The dry run estimates the freed space.
+- **Usage:** `sudo ./ubuntu2404-debloat.sh --audit`, `--dry-run`, then `sudo ./ubuntu2404-debloat.sh`.
+- **Tested:** every commit runs audit, dry run, debloat, second run and restore on a real Ubuntu 24.04 VM (55 checks;
+  1210 to 1119 packages, 479 MB freed, 26 to 22 running services, audit warnings 6 to 2; ssh, sudo, DNS, HTTPS and apt
+  stay healthy).
 - **License:** MIT.

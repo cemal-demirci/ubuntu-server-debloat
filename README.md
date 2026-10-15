@@ -42,7 +42,7 @@ sudo /var/backups/cemalcloud-debloat/<tarih-saat>/restore.sh
 | | Neye bakar |
 |---|---|
 | **Şişkinlik** | snap, telemetri paketleri, giriş mesajındaki reklamlar, çalışan modem / USB disk / firmware servisleri, gerçek bir bulut yokken kurulu cloud-init, sınırı olmayan sistem günlüğü |
-| **Güvenlik** | Otomatik güvenlik güncellemeleri, bekleyen yeniden başlatma, SSH'ta root ve parola girişi, güvenlik duvarı, dışarıya açık portlar ve onları dinleyen programlar |
+| **Güvenlik** | otomatik güvenlik güncellemeleri, bekleyen yeniden başlatma, SSH'ta root ve parola girişi, güvenlik duvarı, dışarıya açık portlar ve onları dinleyen programlar |
 
 Güvenlik kısmı yalnızca rapordur. Script SSH ayarınıza da güvenlik duvarınıza da dokunmaz, o karar sizin.
 
